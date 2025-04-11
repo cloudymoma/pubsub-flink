@@ -6,7 +6,7 @@
 
 2. [Apache Flink Pubsub connector](https://nightlies.apache.org/flink/flink-docs-master/docs/connectors/datastream/pubsub/) may **NOT** working properly in some cases. Hence this [GCP Flink Pubsub connector](https://github.com/GoogleCloudPlatform/pubsub) may worth a try.
 
-https://github.com/cloudymoma/pubsub I forked this GCP connector and made it works so far.
+https://github.com/cloudymoma/pubsub/tree/da-pom-fix I forked this GCP connector and made the `da-pom-fix` works so far.
 
 ```shell
 cd pubsub/flink-connector
