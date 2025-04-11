@@ -11,6 +11,7 @@ import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.streaming.connectors.gcp.pubsub.PubSubSource;
 import org.apache.flink.util.Collector;
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
 
 import com.google.auth.oauth2.ServiceAccountCredentials;
 import com.google.auth.oauth2.GoogleCredentials; // For Service Account auth
@@ -49,6 +50,7 @@ public class BindiegoFlink {
         final String projectId = params.getRequired("project");
         final String subscription = params.getRequired("subscription");
         final String saCredentials = params.getRequired("saCredentials");
+        final boolean useGcpPubsubConnectors = params.getBoolean("useGcpPubsubConnectors", false);
 
         // Optional: checkpointing interval in ms (recommended for fault tolerance)
         final long checkpointInterval = params.getLong("checkpointInterval", 60000); // Default 60 seconds
@@ -64,22 +66,48 @@ public class BindiegoFlink {
              LOG.warn("Checkpointing is disabled. Job will restart from scratch on failure.");
         }
 
-        // 3. Create Pub/Sub Source
-        // Assumes Application Default Credentials (ADC) are configured
-        // gcloud auth application-default login
-        PubSubSource<String> pubSubSource = PubSubSource.newBuilder()
-            .withDeserializationSchema(new SimplePubSubDeserializationSchema())
-            .withProjectName(projectId)
-            .withSubscriptionName(subscription)
-            .withCredentials(ServiceAccountCredentials.fromStream(
-                    BindiegoFlink.getInputStreamFromGcs(saCredentials) // Use the method to get InputStream
-            ))
-            .withPubSubSubscriberFactory(200, Duration.ofSeconds(15), 3) // batch size, timeout, max retries
-            .build();
+        DataStream<String> messageStream = null;
 
-        // 4. Create DataStream from Pub/Sub Source
-        DataStream<String> messageStream = env
-            .addSource(pubSubSource);
+        if (useGcpPubsubConnectors) {
+            LOG.info("Using GCP Pub/Sub Connectors.");
+
+            // 3. Create Pub/Sub Source
+            messageStream = env.fromSource(
+                com.google.pubsub.flink.PubSubSource.<String>builder()
+                    .setDeserializationSchema(
+                        com.google.pubsub.flink.PubSubDeserializationSchema
+                            .dataOnly(new SimpleStringSchema())
+                    )
+                    .setProjectName(projectId)
+                    .setSubscriptionName(subscription)
+                    .setCredentials(
+                        ServiceAccountCredentials.fromStream(
+                            BindiegoFlink.getInputStreamFromGcs(saCredentials) // Use the method to get InputStream
+                        )
+                    )
+                    .build(),
+                WatermarkStrategy.noWatermarks(),
+                "PubSubSource");
+        } else {
+            LOG.info("Using Apache Flink Pub/Sub Connectors.");
+
+            // 3. Create Pub/Sub Source
+            // Assumes Application Default Credentials (ADC) are configured
+            // gcloud auth application-default login
+            PubSubSource<String> pubSubSource = PubSubSource.newBuilder()
+                .withDeserializationSchema(new SimplePubSubDeserializationSchema())
+                .withProjectName(projectId)
+                .withSubscriptionName(subscription)
+                .withCredentials(ServiceAccountCredentials.fromStream(
+                        BindiegoFlink.getInputStreamFromGcs(saCredentials) // Use the method to get InputStream
+                ))
+                .withPubSubSubscriberFactory(200, Duration.ofSeconds(15), 3) // batch size, timeout, max retries
+                .build();
+
+            // 4. Create DataStream from Pub/Sub Source
+            messageStream = env
+                .addSource(pubSubSource);
+        }
 
         // 5. Apply Sliding Window and Process
         DataStream<Tuple2<Long, String>> windowedCounts = messageStream

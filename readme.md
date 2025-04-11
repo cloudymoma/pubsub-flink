@@ -1,6 +1,17 @@
 ### Flink job that consumes messages from Google Cloud Pubsub
 
-**Known Issue**: [Flink(Dataproc) PHS server](https://github.com/cloudymoma/pubsub-flink/blob/main/flink.sh#L64-L67) is *NOT* working properly by now. Hence you may skip the step for creating a PHS sever and check the flink/yarn job directly from the job server.
+**Known Issues**: 
+
+1. [Flink(Dataproc) PHS server](https://github.com/cloudymoma/pubsub-flink/blob/main/flink.sh#L64-L67) is **NOT** working properly by now. Hence you may skip the step for creating a PHS sever and check the flink/yarn job directly from the job server.
+
+2. [Apache Flink Pubsub connector](https://nightlies.apache.org/flink/flink-docs-master/docs/connectors/datastream/pubsub/) may **NOT** working properly in some cases. Hence this [GCP Flink Pubsub connector](https://github.com/GoogleCloudPlatform/pubsub) may worth a try.
+
+https://github.com/cloudymoma/pubsub I forked this GCP connector and made it works so far.
+
+```shell
+cd pubsub/flink-connector
+mvn clean package install -DskipTests
+```
 
 #### before start
 

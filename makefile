@@ -17,6 +17,7 @@ run:
 	@./flink.sh flinkjob \
 		--project $(gcp_project) \
 		--subscription $(pubsub_subscription) \
+		--useGcpPubsubConnectors true \
 		--saCredentials $(gcs_flink_path)/sa.json
 	@echo "Flink job submitted to Dataproc."
 
