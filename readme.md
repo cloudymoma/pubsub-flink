@@ -1,6 +1,6 @@
 ### Flink job that consumes messages from Google Cloud Pubsub
 
-**Known Issues**: 
+**Known Issues**:
 
 1. [Flink(Dataproc) PHS server](https://github.com/cloudymoma/pubsub-flink/blob/main/flink.sh#L64-L67) is **NOT** working properly by now. Hence you may skip the step for creating a PHS sever and check the flink/yarn job directly from the job server.
 
@@ -8,10 +8,14 @@
 
 https://github.com/cloudymoma/pubsub/tree/da-pom-fix I forked this GCP connector and made the `da-pom-fix` works so far.
 
+this will build the flink connector GCP DA Fixed version and install on your local maven repository for later use.
+
 ```shell
 cd pubsub/flink-connector
 mvn clean package install -DskipTests
 ```
+
+you can use `--useGcpPubsubConnectors <boolean>` in [`makefile`](https://github.com/cloudymoma/pubsub-flink/blob/main/makefile#L20) to switch between the two connectors.
 
 #### before start
 
@@ -34,7 +38,7 @@ Also, in the `makefile`, I have copied the Google Cloud Platform service account
 ./flink.sh flinkjobserver
 ```
 
-3. Build the flink job and upload to GCS 
+3. Build the flink job and upload to GCS
 ```shell
 make build
 ```
