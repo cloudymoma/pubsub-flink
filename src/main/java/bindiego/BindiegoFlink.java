@@ -1,6 +1,22 @@
 package bindiego;
 
+import com.google.auth.oauth2.GoogleCredentials; // For Service Account auth
+import com.google.auth.oauth2.ServiceAccountCredentials;
+import com.google.cloud.ReadChannel;
+import com.google.cloud.storage.Blob;
+import com.google.cloud.storage.BlobId;
+import com.google.cloud.storage.Storage;
+import com.google.cloud.storage.StorageException;
+import com.google.cloud.storage.StorageOptions;
+import java.io.FileInputStream; // For reading key file
+import java.io.FileNotFoundException; // Specific exception for clarity
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.channels.Channels;
+import java.time.Duration;
+import java.util.Iterator;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
+import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
@@ -11,37 +27,21 @@ import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.streaming.connectors.gcp.pubsub.PubSubSource;
 import org.apache.flink.util.Collector;
-import org.apache.flink.api.common.serialization.SimpleStringSchema;
-
-import com.google.auth.oauth2.ServiceAccountCredentials;
-import com.google.auth.oauth2.GoogleCredentials; // For Service Account auth
-import com.google.cloud.ReadChannel;
-import com.google.cloud.storage.Blob;
-import com.google.cloud.storage.BlobId;
-import com.google.cloud.storage.Storage;
-import com.google.cloud.storage.StorageException;
-import com.google.cloud.storage.StorageOptions;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Iterator;
-import java.time.Duration;
-import java.io.FileInputStream;        // For reading key file
-import java.io.FileNotFoundException;  // Specific exception for clarity
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.channels.Channels; 
-
 public class BindiegoFlink {
 
-    private static final Logger LOG = LoggerFactory.getLogger(BindiegoFlink.class);
+    private static final Logger LOG = LoggerFactory.getLogger(
+        BindiegoFlink.class
+    );
 
     private static final String GCS_PREFIX = "gs://";
 
     public static void main(String[] args) throws Exception {
         // 1. Set up the execution environment
-        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        final StreamExecutionEnvironment env =
+            StreamExecutionEnvironment.getExecutionEnvironment();
 
         // 2. Parse command-line arguments
         final ParameterTool params = ParameterTool.fromArgs(args);
@@ -50,20 +50,36 @@ public class BindiegoFlink {
         final String projectId = params.getRequired("project");
         final String subscription = params.getRequired("subscription");
         final String saCredentials = params.getRequired("saCredentials");
-        final boolean useGcpPubsubConnectors = params.getBoolean("useGcpPubsubConnectors", false);
+        final boolean useGcpPubsubConnectors = params.getBoolean(
+            "useGcpPubsubConnectors",
+            false
+        );
 
         // Optional: checkpointing interval in ms (recommended for fault tolerance)
-        final long checkpointInterval = params.getLong("checkpointInterval", 60000); // Default 60 seconds
+        final long checkpointInterval = params.getLong(
+            "checkpointInterval",
+            6000
+        ); // Default 60 seconds
         if (checkpointInterval > 0) {
-             env.enableCheckpointing(checkpointInterval);
+            env.enableCheckpointing(checkpointInterval);
         }
 
+        // get the number of CPU cores available
+        final int cores = Runtime.getRuntime().availableProcessors();
+        LOG.info("Number of CPU cores available: {}", cores);
+
         LOG.info("Starting Flink PubSub Window Count Job.");
-        LOG.info("Reading from Project: {}, Subscription: {}", projectId, subscription);
+        LOG.info(
+            "Reading from Project: {}, Subscription: {}",
+            projectId,
+            subscription
+        );
         if (checkpointInterval > 0) {
-             LOG.info("Checkpointing enabled every {} ms", checkpointInterval);
+            LOG.info("Checkpointing enabled every {} ms", checkpointInterval);
         } else {
-             LOG.warn("Checkpointing is disabled. Job will restart from scratch on failure.");
+            LOG.warn(
+                "Checkpointing is disabled. Job will restart from scratch on failure."
+            );
         }
 
         DataStream<String> messageStream = null;
@@ -75,8 +91,9 @@ public class BindiegoFlink {
             messageStream = env.fromSource(
                 com.google.pubsub.flink.PubSubSource.<String>builder()
                     .setDeserializationSchema(
-                        com.google.pubsub.flink.PubSubDeserializationSchema
-                            .dataOnly(new SimpleStringSchema())
+                        com.google.pubsub.flink.PubSubDeserializationSchema.dataOnly(
+                            new SimpleStringSchema()
+                        )
                     )
                     .setProjectName(projectId)
                     .setSubscriptionName(subscription)
@@ -85,9 +102,16 @@ public class BindiegoFlink {
                             BindiegoFlink.getInputStreamFromGcs(saCredentials) // Use the method to get InputStream
                         )
                     )
+                    // Open 1  StreamingPull connections per CPU core.
+                    .setParallelPullCount(cores)
+                    // Allow up to 500k message deliveries per checkpoint interval.
+                    .setMaxOutstandingMessagesCount(500_000L)
+                    // Allow up to 1 GB in cumulatitive message size per checkpoint interval.
+                    .setMaxOutstandingMessagesBytes(1_000L * 1024L * 1024L)
                     .build(),
                 WatermarkStrategy.noWatermarks(),
-                "PubSubSource");
+                "PubSubSource"
+            );
         } else {
             LOG.info("Using Apache Flink Pub/Sub Connectors.");
 
@@ -95,23 +119,31 @@ public class BindiegoFlink {
             // Assumes Application Default Credentials (ADC) are configured
             // gcloud auth application-default login
             PubSubSource<String> pubSubSource = PubSubSource.newBuilder()
-                .withDeserializationSchema(new SimplePubSubDeserializationSchema())
+                .withDeserializationSchema(
+                    new SimplePubSubDeserializationSchema()
+                )
                 .withProjectName(projectId)
                 .withSubscriptionName(subscription)
-                .withCredentials(ServiceAccountCredentials.fromStream(
+                .withCredentials(
+                    ServiceAccountCredentials.fromStream(
                         BindiegoFlink.getInputStreamFromGcs(saCredentials) // Use the method to get InputStream
-                ))
+                    )
+                )
                 .withPubSubSubscriberFactory(200, Duration.ofSeconds(15), 3) // batch size, timeout, max retries
                 .build();
 
             // 4. Create DataStream from Pub/Sub Source
-            messageStream = env
-                .addSource(pubSubSource);
+            messageStream = env.addSource(pubSubSource);
         }
 
         // 5. Apply Sliding Window and Process
         DataStream<Tuple2<Long, String>> windowedCounts = messageStream
-            .windowAll(SlidingProcessingTimeWindows.of(Time.seconds(10), Time.seconds(1)))
+            .windowAll(
+                SlidingProcessingTimeWindows.of(
+                    Time.seconds(10),
+                    Time.seconds(1)
+                )
+            )
             .process(new CountAndSampleWindowFunction());
 
         // 6. Print results to console (or sink to another system)
@@ -125,12 +157,18 @@ public class BindiegoFlink {
      * A ProcessAllWindowFunction that counts elements in a window and picks the first as a sample.
      */
     public static class CountAndSampleWindowFunction
-            extends ProcessAllWindowFunction<String, Tuple2<Long, String>, TimeWindow> {
+        extends ProcessAllWindowFunction<
+            String,
+            Tuple2<Long, String>,
+            TimeWindow
+        > {
 
         @Override
-        public void process(Context context, 
-                Iterable<String> elements, 
-                Collector<Tuple2<Long, String>> out) throws Exception {
+        public void process(
+            Context context,
+            Iterable<String> elements,
+            Collector<Tuple2<Long, String>> out
+        ) throws Exception {
             long count = 0;
             String sample = null;
             Iterator<String> iterator = elements.iterator();
@@ -146,35 +184,55 @@ public class BindiegoFlink {
             // Only output if the window wasn't empty
             if (count > 0) {
                 // Format the sample to avoid excessively long log lines if needed
-                String sampleOutput = (sample != null && sample.length() > 100) ? sample.substring(0, 97) + "..." : sample;
-                if(sampleOutput == null) sampleOutput = "[No Sample Available]"; // Handle case where iterator was somehow empty after check
+                String sampleOutput = (sample != null && sample.length() > 100)
+                    ? sample.substring(0, 97) + "..."
+                    : sample;
+                if (sampleOutput == null) sampleOutput =
+                    "[No Sample Available]"; // Handle case where iterator was somehow empty after check
 
-                LOG.debug("Window {}: Count={}, Sample='{}'", context.window(), count, sampleOutput);
+                LOG.debug(
+                    "Window {}: Count={}, Sample='{}'",
+                    context.window(),
+                    count,
+                    sampleOutput
+                );
                 out.collect(new Tuple2<>(count, sampleOutput));
             } else {
-                 LOG.debug("Window {}: Empty window.", context.window());
+                LOG.debug("Window {}: Empty window.", context.window());
             }
         }
     }
 
     public static InputStream getInputStreamFromGcs(final String fullGcsPath)
-            throws IOException, StorageException, IllegalArgumentException, FileNotFoundException {
-
+        throws IOException, StorageException, IllegalArgumentException, FileNotFoundException {
         if (fullGcsPath == null || !fullGcsPath.startsWith(GCS_PREFIX)) {
-            throw new IllegalArgumentException("Invalid GCS path format: Must start with '" 
-                + GCS_PREFIX + "'. Path: " + fullGcsPath);
+            throw new IllegalArgumentException(
+                "Invalid GCS path format: Must start with '" +
+                GCS_PREFIX +
+                "'. Path: " +
+                fullGcsPath
+            );
         }
 
         String pathWithoutPrefix = fullGcsPath.substring(GCS_PREFIX.length());
         int firstSlashIndex = pathWithoutPrefix.indexOf('/');
 
         if (firstSlashIndex <= 0) {
-            throw new IllegalArgumentException("Invalid GCS path format: Missing bucket or object name after '" 
-                + GCS_PREFIX + "'. Path: " + fullGcsPath);
+            throw new IllegalArgumentException(
+                "Invalid GCS path format: Missing bucket or object name after '" +
+                GCS_PREFIX +
+                "'. Path: " +
+                fullGcsPath
+            );
         }
 
-        final String bucketName = pathWithoutPrefix.substring(0, firstSlashIndex);
-        final String objectName = pathWithoutPrefix.substring(firstSlashIndex + 1);
+        final String bucketName = pathWithoutPrefix.substring(
+            0,
+            firstSlashIndex
+        );
+        final String objectName = pathWithoutPrefix.substring(
+            firstSlashIndex + 1
+        );
 
         Storage storage = StorageOptions.getDefaultInstance().getService();
 
@@ -182,7 +240,9 @@ public class BindiegoFlink {
         Blob blob = storage.get(blobId);
 
         if (blob == null) {
-            throw new FileNotFoundException("GCS object not found: " + fullGcsPath);
+            throw new FileNotFoundException(
+                "GCS object not found: " + fullGcsPath
+            );
         }
 
         ReadChannel reader = blob.reader();
