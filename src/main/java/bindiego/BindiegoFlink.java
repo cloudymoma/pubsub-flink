@@ -58,8 +58,8 @@ public class BindiegoFlink {
         // Optional: checkpointing interval in ms (recommended for fault tolerance)
         final long checkpointInterval = params.getLong(
             "checkpointInterval",
-            6000
-        ); // Default 60 seconds
+            60000L // Default 60 seconds
+        ); 
         if (checkpointInterval > 0) {
             env.enableCheckpointing(checkpointInterval);
         }
@@ -67,6 +67,11 @@ public class BindiegoFlink {
         // get the number of CPU cores available
         final int cores = Runtime.getRuntime().availableProcessors();
         LOG.info("Number of CPU cores available: {}", cores);
+
+        // Set the default parallelism for the job to the number of available cores
+        // This affects all operators unless overridden
+        env.setParallelism(cores);
+        LOG.info("Default Flink job parallelism set to: {}", cores);
 
         LOG.info("Starting Flink PubSub Window Count Job.");
         LOG.info(
@@ -104,20 +109,33 @@ public class BindiegoFlink {
                     )
                     // Open 1  StreamingPull connections per CPU core.
                     .setParallelPullCount(cores)
-                    // Allow up to 500k message deliveries per checkpoint interval.
-                    .setMaxOutstandingMessagesCount(500_000L)
-                    // Allow up to 1 GB in cumulatitive message size per checkpoint interval.
-                    .setMaxOutstandingMessagesBytes(1_000L * 1024L * 1024L)
+                    // Allow up to 5 million message deliveries per checkpoint interval.
+                    .setMaxOutstandingMessagesCount(5_000_000L)
+                    // Allow up to 10 GB in cumulative message size per checkpoint interval.
+                    .setMaxOutstandingMessagesBytes(10_000L * 1024L * 1024L)
                     .build(),
                 WatermarkStrategy.noWatermarks(),
                 "PubSubSource"
-            );
+            ).setParallelism(cores); // Set parallelism for the source
         } else {
             LOG.info("Using Apache Flink Pub/Sub Connectors.");
 
             // 3. Create Pub/Sub Source
             // Assumes Application Default Credentials (ADC) are configured
             // gcloud auth application-default login
+
+            // Increase batch size for better throughput, e.g., from 200 to 1000.
+            // Adjust timeout if necessary. Default is 15s.
+            // Max retries default is 3.
+            final int pubsubBatchSize = params.getInt("pubsubBatchSize", 1000); // Make it configurable
+            final int pubsubTimeoutSeconds = params.getInt("pubsubTimeoutSeconds", 15);
+
+            LOG.info(
+                "Apache Flink PubSub Connector: batchSize={}, timeoutSeconds={}",
+                pubsubBatchSize,
+                pubsubTimeoutSeconds
+            );
+
             PubSubSource<String> pubSubSource = PubSubSource.newBuilder()
                 .withDeserializationSchema(
                     new SimplePubSubDeserializationSchema()
@@ -129,11 +147,11 @@ public class BindiegoFlink {
                         BindiegoFlink.getInputStreamFromGcs(saCredentials) // Use the method to get InputStream
                     )
                 )
-                .withPubSubSubscriberFactory(200, Duration.ofSeconds(15), 3) // batch size, timeout, max retries
+                .withPubSubSubscriberFactory(pubsubBatchSize, Duration.ofSeconds(pubsubTimeoutSeconds), 3)
                 .build();
 
             // 4. Create DataStream from Pub/Sub Source
-            messageStream = env.addSource(pubSubSource);
+            messageStream = env.addSource(pubSubSource).setParallelism(cores); // Set parallelism for the source
         }
 
         // 5. Apply Sliding Window and Process
