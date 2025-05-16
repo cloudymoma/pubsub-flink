@@ -5,7 +5,7 @@ pubsub_subscription := dingo-topic-sub-flink
 gcs_bucket := dingoproc
 gcs_flink_path := gs://$(gcs_bucket)/flink_jobs
 gcs_flink_state_backend := gs://$(gcs_bucket)/flink_state_backend
-flink_checkpoint_interval := 30000
+flink_checkpoint_interval := 6000
 
 build:
 	@echo "Building Flink JAR..."

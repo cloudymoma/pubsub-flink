@@ -69,7 +69,7 @@ public class BindiegoFlink {
         // Optional: checkpointing interval in ms (recommended for fault tolerance)
         final long checkpointInterval = params.getLong(
             "checkpointInterval",
-            60000L // Default 60 seconds
+            10000L // Default 10 seconds
         );
         if (checkpointInterval > 0) {
             env.enableCheckpointing(checkpointInterval);
@@ -121,10 +121,10 @@ public class BindiegoFlink {
                     )
                     // Open 1  StreamingPull connections per CPU core.
                     .setParallelPullCount(cores)
-                    // Allow up to 5 million message deliveries per checkpoint interval.
-                    .setMaxOutstandingMessagesCount(5_000_000L)
-                    // Allow up to 10 GB in cumulative message size per checkpoint interval.
-                    .setMaxOutstandingMessagesBytes(10_000L * 1024L * 1024L)
+                    // Allow up to 500k message deliveries per checkpoint interval.
+                    .setMaxOutstandingMessagesCount(500_000L)
+                    // Allow up to 1 GB in cumulative message size per checkpoint interval.
+                    .setMaxOutstandingMessagesBytes(1_000L * 1024L * 1024L)
                     .build(),
                 WatermarkStrategy.noWatermarks(),
                 "PubSubSource"
