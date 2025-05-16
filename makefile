@@ -4,6 +4,8 @@ gcp_project := du-hast-mich
 pubsub_subscription := dingo-topic-sub-flink
 gcs_bucket := dingoproc
 gcs_flink_path := gs://$(gcs_bucket)/flink_jobs
+gcs_flink_state_backend := gs://$(gcs_bucket)/flink_state_backend
+flink_checkpoint_interval := 30000
 
 build:
 	@echo "Building Flink JAR..."
@@ -18,7 +20,9 @@ run:
 		--project $(gcp_project) \
 		--subscription $(pubsub_subscription) \
 		--useGcpPubsubConnectors true \
-		--saCredentials $(gcs_flink_path)/sa.json
+		--saCredentials $(gcs_flink_path)/sa.json \
+		--gcsStateBackendPath $(gcs_flink_state_backend) \
+		--checkpointInterval $(flink_checkpoint_interval)
 	@echo "Flink job submitted to Dataproc."
 
 clean:

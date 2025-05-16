@@ -19,6 +19,7 @@ import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.utils.ParameterTool;
+import org.apache.flink.runtime.state.filesystem.FsStateBackend;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.windowing.ProcessAllWindowFunction;
@@ -50,18 +51,29 @@ public class BindiegoFlink {
         final String projectId = params.getRequired("project");
         final String subscription = params.getRequired("subscription");
         final String saCredentials = params.getRequired("saCredentials");
+        final String gcsStateBackendPath = params.getRequired("gcsStateBackendPath"); // New parameter for GCS state backend
         final boolean useGcpPubsubConnectors = params.getBoolean(
             "useGcpPubsubConnectors",
             false
         );
 
+        // Configure State Backend for GCS
+        if (!gcsStateBackendPath.startsWith(GCS_PREFIX)) {
+            throw new IllegalArgumentException(
+                "Invalid gcsStateBackendPath: Must start with '" + GCS_PREFIX + "'. Path: " + gcsStateBackendPath
+            );
+        }
+        LOG.info("Configuring FsStateBackend with GCS path: {}", gcsStateBackendPath);
+        env.setStateBackend(new FsStateBackend(gcsStateBackendPath));
+
         // Optional: checkpointing interval in ms (recommended for fault tolerance)
         final long checkpointInterval = params.getLong(
             "checkpointInterval",
             60000L // Default 60 seconds
-        ); 
+        );
         if (checkpointInterval > 0) {
             env.enableCheckpointing(checkpointInterval);
+            // Logging for checkpointing will be updated later to include GCS path
         }
 
         // get the number of CPU cores available
@@ -80,10 +92,10 @@ public class BindiegoFlink {
             subscription
         );
         if (checkpointInterval > 0) {
-            LOG.info("Checkpointing enabled every {} ms", checkpointInterval);
+            LOG.info("Checkpointing enabled every {} ms, stored at GCS path: {}", checkpointInterval, gcsStateBackendPath);
         } else {
             LOG.warn(
-                "Checkpointing is disabled. Job will restart from scratch on failure."
+                "Checkpointing is disabled. If enabled, state would be stored at {}. Job will restart from scratch on failure.", gcsStateBackendPath
             );
         }
 
