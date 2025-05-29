@@ -61,6 +61,7 @@ __flink_hist_server() {
         --master-boot-disk-type=hyperdisk-balanced \
         --image-version=${OS_IMG} \
         --bucket=$STAGING_BUCKET \
+        --metadata flink-start-yarn-session=true \
         --properties=yarn:yarn.nodemanager.remote-app-log-dir=$FLINK_GCS_ROOT/yarn-logs \
         --properties=spark:spark.eventLog.enabled=true \
         --properties=spark:spark.eventLog.dir=$FLINK_GCS_ROOT/events/spark-job-history \
@@ -141,6 +142,7 @@ __flink_job_server() {
         --secondary-worker-boot-disk-type=pd-balanced \
         --num-secondary-worker-local-ssds=1 \
         --secondary-worker-local-ssd-interface=NVME \
+        --metadata flink-start-yarn-session=true \
         --properties=yarn:yarn.nodemanager.remote-app-log-dir=$FLINK_GCS_ROOT/yarn-logs \
         --properties=spark:spark.eventLog.enabled=true \
         --properties=spark:spark.eventLog.dir=$FLINK_GCS_ROOT/events/spark-job-history \
