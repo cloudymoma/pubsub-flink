@@ -2,19 +2,19 @@
 
 # --- Configuration ---
 # GCP Project and Networking
-export PROJECT_NAME=du-hast-mich
+export PROJECT_NAME=google.com:vinayakumarb-dp
 export REGION=us-central1
 export ZONE=$REGION-b
 
 # GCS Bucket for staging, temp files, and Flink history
-export GCS_BUCKET=dingoproc # Make sure this bucket exists
+export GCS_BUCKET=vinayakumarb-dev # Make sure this bucket exists
 export STAGING_BUCKET=$GCS_BUCKET
 export TEMP_BUCKET=$GCS_BUCKET
-export FLINK_GCS_ROOT=gs://$GCS_BUCKET/flink # Directory for Flink
+export FLINK_GCS_ROOT=gs://$GCS_BUCKET/flinkuitest # Directory for Flink
 
 # Cluster Names
-export FLINK_HIST_CLUSTER_NAME=dingoflinkhist
-export FLINK_JOB_CLUSTER_NAME=dingoflinkjob
+export FLINK_HIST_CLUSTER_NAME=vinayakumarb-flink-phs
+export FLINK_JOB_CLUSTER_NAME=vinayakumarb-flink-job
 
 # Job Cluster Configuration
 export MAX_IDLE=1h # Auto-delete after 1 hour of inactivity
@@ -22,7 +22,7 @@ export MAX_IDLE=1h # Auto-delete after 1 hour of inactivity
 export OS_IMG=2.2-debian12 # Flink image version
 
 # Flink Job Configuration (MODIFY THESE)
-export FLINK_JOB_JAR="gs://dingoproc/flink_jobs/pubsub-flink-1.0-SNAPSHOT.jar" # REQUIRED: Path to your Flink job JAR (can be local or GCS)
+export FLINK_JOB_JAR="file:///usr/lib/flink/examples/batch/WordCount.jar" # REQUIRED: Path to your Flink job JAR (can be local or GCS)
 export FLINK_MAIN_CLASS="" # OPTIONAL: Main class if not specified in JAR manifest (e.g., com.example.MyFlinkJob)
 
 # --- Internal ---
@@ -61,19 +61,15 @@ __flink_hist_server() {
         --master-boot-disk-type=hyperdisk-balanced \
         --image-version=${OS_IMG} \
         --bucket=$STAGING_BUCKET \
-        --metadata flink-start-yarn-session=true \
         --properties=yarn:yarn.nodemanager.remote-app-log-dir=$FLINK_GCS_ROOT/*/yarn-logs \
         --properties=mapred:mapreduce.jobhistory.read-only.dir-pattern=$FLINK_GCS_ROOT/*/mapreduce-job-history/done \
-        --properties=spark:spark.eventLog.enabled=true \
-        --properties=spark:spark.eventLog.dir=$FLINK_GCS_ROOT/events/spark-job-history \
-        --properties=spark:spark.eventLog.rolling.enabled=true \
-        --properties=spark:spark.eventLog.rolling.maxFileSize=128m \
         --properties=spark:spark.history.fs.logDirectory=$FLINK_GCS_ROOT/*/spark-job-history \
         --properties=spark:spark.history.custom.executor.log.url.applyIncompleteApplication=false \
         --properties=spark:spark.history.custom.executor.log.url="{{YARN_LOG_SERVER_URL}}/{{NM_HOST}}:{{NM_PORT}}/{{CONTAINER_ID}}/{{CONTAINER_ID}}/{{USER}}/{{FILE_NAME}}" \
         --properties=flink:historyserver.archive.fs.dir=$FLINK_GCS_ROOT/*/flink-job-history/completed-jobs \
         --properties=flink:historyserver.archive.fs.refresh-interval=3000 \
         --properties=flink:historyserver.web.refresh-interval=3000 \
+        --properties=flink:jobmanager.archive.fs.dir=$FLINK_GCS_ROOT/jobs \
         --project=$PROJECT_NAME
     echo "Flink History Server UI may be accessible via Component Gateway once ready."
 }
@@ -146,14 +142,11 @@ __flink_job_server() {
         --secondary-worker-local-ssd-interface=NVME \
         --metadata flink-start-yarn-session=true \
         --properties=yarn:yarn.nodemanager.remote-app-log-dir=$FLINK_GCS_ROOT/$FLINK_JOB_CLUSTER_NAME/yarn-logs \
-        --properties=mapred:mapreduce.jobhistory.read-only.dir-pattern=$FLINK_GCS_ROOT/$FLINK_JOB_CLUSTER_NAME/mapreduce-job-history/done \
         --properties=spark:spark.eventLog.enabled=true \
         --properties=spark:spark.eventLog.dir=$FLINK_GCS_ROOT/$FLINK_JOB_CLUSTER_NAME/spark-job-history \
         --properties=spark:spark.eventLog.rolling.enabled=true \
         --properties=spark:spark.eventLog.rolling.maxFileSize=128m \
         --properties=spark:spark.history.fs.logDirectory=$FLINK_GCS_ROOT/$FLINK_JOB_CLUSTER_NAME/spark-job-history \
-        --properties=spark:spark.history.custom.executor.log.url.applyIncompleteApplication=false \
-        --properties=spark:spark.history.custom.executor.log.url="{{YARN_LOG_SERVER_URL}}/{{NM_HOST}}:{{NM_PORT}}/{{CONTAINER_ID}}/{{CONTAINER_ID}}/{{USER}}/{{FILE_NAME}}" \
         --properties=spark:spark.history.fs.gs.outputstream.type=FLUSHABLE_COMPOSITE \
         --properties=spark:spark.history.fs.gs.outputstream.sync.min.interval.ms=1000ms \
         --properties=spark:spark.dataproc.enhanced.optimizer.enabled=true \
